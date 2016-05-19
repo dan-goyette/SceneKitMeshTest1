@@ -10,13 +10,16 @@ import UIKit
 import QuartzCore
 import SceneKit
 
-class GameViewController: UIViewController {
-
+class GameViewController: UIViewController , SCNSceneRendererDelegate{
+    
+    
+    var allNodes : [SCNNode] = [SCNNode]()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
         // create a new scene
-        let scene = SCNScene(named: "art.scnassets/ship.scn")!
+        let scene = SCNScene()
         
         // create and add a camera to the scene
         let cameraNode = SCNNode()
@@ -24,13 +27,15 @@ class GameViewController: UIViewController {
         scene.rootNode.addChildNode(cameraNode)
         
         // place the camera
-        cameraNode.position = SCNVector3(x: 0, y: 0, z: 15)
+        cameraNode.position = SCNVector3(x: 25, y: 50, z: 60)
+        cameraNode.eulerAngles.x = Float( -1 * M_PI_4)
         
         // create and add a light to the scene
         let lightNode = SCNNode()
         lightNode.light = SCNLight()
-        lightNode.light!.type = SCNLightTypeOmni
-        lightNode.position = SCNVector3(x: 0, y: 10, z: 10)
+        lightNode.light!.type = SCNLightTypeDirectional
+        lightNode.position = SCNVector3(x: 25, y: 5, z: 25)
+        lightNode.eulerAngles.x = Float( M_PI_2)
         scene.rootNode.addChildNode(lightNode)
         
         // create and add an ambient light to the scene
@@ -39,12 +44,6 @@ class GameViewController: UIViewController {
         ambientLightNode.light!.type = SCNLightTypeAmbient
         ambientLightNode.light!.color = UIColor.darkGrayColor()
         scene.rootNode.addChildNode(ambientLightNode)
-        
-        // retrieve the ship node
-        let ship = scene.rootNode.childNodeWithName("ship", recursively: true)!
-        
-        // animate the 3d object
-        ship.runAction(SCNAction.repeatActionForever(SCNAction.rotateByX(0, y: 2, z: 0, duration: 1)))
         
         // retrieve the SCNView
         let scnView = self.view as! SCNView
@@ -61,45 +60,116 @@ class GameViewController: UIViewController {
         // configure the view
         scnView.backgroundColor = UIColor.blackColor()
         
-        // add a tap gesture recognizer
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        scnView.addGestureRecognizer(tapGesture)
+        
+        
+        var triangleSets = [[SCNVector3]]()
+        var pointYValues: [[Float]] = []
+        
+        let dimension = 50
+        
+        for x in 0...dimension {
+            var subList = [Float]()
+            for z in 0...dimension {
+                //let baseY = max( abs(Float(x) - (Float(dimension) / 2.0)), abs(Float(z) - (Float(dimension) / 2.0)))
+                //let baseY = 3.0 * (sin(Float(x)) - cos(Float(z)))
+                //let baseY = 3 * sin(abs(Float(x) / 3.0) + abs(Float(z) / 3.0)) //+ cos(abs(Float(x) / 3.0) + abs(Float(z) / 3.0)))
+                //subList.append(randomBetweenNumbers(Float(baseY), secondNum: Float(Float(baseY) + 0.0)))
+                
+                let baseY = 3 * sin(GLKVector2Distance( GLKVector2Make(Float(x), Float(z)), GLKVector2Make(Float(dimension / 2), Float(dimension / 2))) / 2.0)
+                subList.append(baseY)
+            }
+            pointYValues.append(subList)
+        }
+        
+        for x in 0...(dimension - 1) {
+            for z in 0...(dimension - 1) {
+                let point11 = SCNVector3Make(Float(x), Float(pointYValues[x][z]), Float(z))
+                let point12 = SCNVector3Make(Float(x), Float(pointYValues[x][z + 1]), Float(z + 1))
+                let point21 = SCNVector3Make(Float(x + 1), Float(pointYValues[x + 1][z]), Float(z))
+                let point22 = SCNVector3Make(Float(x + 1), Float(pointYValues[x + 1][z + 1]), Float(z + 1))
+                
+                triangleSets.append([SCNVector3](arrayLiteral: point11, point12, point21))
+                triangleSets.append([SCNVector3](arrayLiteral: point21, point12, point22))
+                
+            }
+        }
+        
+        var minY : Float = 0.0
+        var maxY : Float = 0.0
+        
+        for triangleSet in triangleSets {
+            for trianglePoints in triangleSet {
+                if (trianglePoints.y > maxY) {
+                    maxY = trianglePoints.y
+                }
+                if (trianglePoints.y < minY) {
+                    minY = trianglePoints.y
+                }
+            }
+        }
+        
+        
+        for triangleSet in triangleSets {
+            let hue = (triangleSet[0].y - minY) / (maxY - minY)
+            let color = getHueColor(hue)
+            
+            addTriangleFromPositions(scene,
+                                     point1: triangleSet[0],
+                                     point2: triangleSet[1],
+                                     point3: triangleSet[2],
+                                     fill: color)
+            
+        }
+        
+        
     }
     
-    func handleTap(gestureRecognize: UIGestureRecognizer) {
-        // retrieve the SCNView
-        let scnView = self.view as! SCNView
-        
-        // check what nodes are tapped
-        let p = gestureRecognize.locationInView(scnView)
-        let hitResults = scnView.hitTest(p, options: nil)
-        // check that we clicked on at least one object
-        if hitResults.count > 0 {
-            // retrieved the first clicked object
-            let result: AnyObject! = hitResults[0]
-            
-            // get its material
-            let material = result.node!.geometry!.firstMaterial!
-            
-            // highlight it
-            SCNTransaction.begin()
-            SCNTransaction.setAnimationDuration(0.5)
-            
-            // on completion - unhighlight
-            SCNTransaction.setCompletionBlock {
-                SCNTransaction.begin()
-                SCNTransaction.setAnimationDuration(0.5)
-                
-                material.emission.contents = UIColor.blackColor()
-                
-                SCNTransaction.commit()
-            }
-            
-            material.emission.contents = UIColor.redColor()
-            
-            SCNTransaction.commit()
-        }
+    
+    
+    func randomBetweenNumbers(firstNum: Float, secondNum: Float) -> Float{
+        return Float(arc4random()) / Float(UINT32_MAX) * abs(firstNum - secondNum) + min(firstNum, secondNum)
     }
+    
+    
+    func getHueColor(hue : Float) -> UIColor {
+        return UIColor(hue: CGFloat(hue), saturation: 0.75, brightness: 0.50, alpha: 1)
+        
+    }
+    
+    
+    
+    func renderer(aRenderer: SCNSceneRenderer, willRenderScene scene: SCNScene, atTime time: NSTimeInterval) {
+        
+    }
+    
+    func addTriangleFromPositions(scene: SCNScene, point1: SCNVector3, point2: SCNVector3, point3: SCNVector3, fill: UIColor)
+    {
+        let vector12 = GLKVector3Make(point1.x - point2.x, point1.y - point2.y, point1.z - point2.z)
+        let vector32 = GLKVector3Make(point3.x - point2.x, point3.y - point2.y, point3.z - point2.z)
+        let normalVector = SCNVector3FromGLKVector3(GLKVector3CrossProduct(vector12, vector32))
+        
+        
+        let positions: [SCNVector3] = [point1, point2, point3]
+        let normals: [SCNVector3] = [normalVector, normalVector, normalVector]
+        let indices: [Int32] = [0, 1, 2]
+        let vertexSource = SCNGeometrySource(vertices: positions, count: positions.count)
+        let normalSource = SCNGeometrySource(normals: normals, count: normals.count)
+        let indexData = NSData(bytes: indices, length: sizeof(Int32) * indices.count)
+        
+        let element = SCNGeometryElement(data: indexData, primitiveType: .Triangles, primitiveCount: indices.count, bytesPerIndex: sizeof(Int32))
+        let geometry = SCNGeometry(sources: [vertexSource, normalSource], elements: [element])
+        
+        let material = SCNMaterial()
+        material.doubleSided = true
+        material.diffuse.contents = fill
+        
+        geometry.materials = [material]
+        let shapeNode = SCNNode(geometry: geometry)
+        
+        scene.rootNode.addChildNode(shapeNode)
+    }
+    
+    
     
     override func shouldAutorotate() -> Bool {
         return true
@@ -121,5 +191,7 @@ class GameViewController: UIViewController {
         super.didReceiveMemoryWarning()
         // Release any cached data, images, etc that aren't in use.
     }
-
+    
+    
+    
 }
